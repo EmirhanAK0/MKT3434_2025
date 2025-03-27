@@ -1,46 +1,113 @@
-# ⚙️ MKT3434_2025
+## Added Features and Explanations
 
-**MKT3434 Course of Dept. Mechatronics Eng. at YTU instructed by Ertugrul Bayraktar**
+### 1. Loss Function Selection – Regression
 
----
+**Description:**  
+Users can select different loss functions (MSE, MAE, Huber) for Linear Regression and SVR. The loss is calculated dynamically based on this choice.
 
-## 🚀 Overview
+**Code:**
+```python
+self.loss_combo = QComboBox()
+self.loss_combo.addItems(["MSE", "MAE", "Huber"])
+...
+loss_type = self.loss_combo.currentText()
+if loss_type == "MSE":
+    loss_value = mean_squared_error(self.y_test, y_pred)
+elif loss_type == "MAE":
+    loss_value = mean_absolute_error(self.y_test, y_pred)
+elif loss_type == "Huber":
+    loss_value = np.mean(np.where(
+        np.abs(self.y_test - y_pred) < 1.0,
+        0.5 * (self.y_test - y_pred) ** 2,
+        1.0 * (np.abs(self.y_test - y_pred) - 0.5)
+    ))
+```
 
-This repository provides a base GUI framework for students to develop and integrate machine learning methods. The GUI is built using PyQt6 and supports various classical machine learning and deep learning techniques. Students will extend this GUI by adding necessary functionalities over time.
+### 2. Loss Function Selection – Classification
 
----
+**Description:**  
+For classification models such as Logistic Regression, users can select between Cross-Entropy and Hinge loss functions.
 
-## 📚 Long-Term Homework Instructions
+**Code:**
+```python
+self.classification_loss_combo = QComboBox()
+self.classification_loss_combo.addItems(["Cross-Entropy", "Hinge"])
+...
+if loss_type == "Cross-Entropy":
+    y_proba = model.predict_proba(self.X_test)
+    loss_value = log_loss(self.y_test, y_proba)
+elif loss_type == "Hinge":
+    y_pred_bin = model.predict(self.X_test)
+    loss_value = hinge_loss(self.y_test, y_pred_bin)
+```
 
-Students are required to modify and enhance this GUI incrementally every three weeks. The objective is to build a fully functional and improved machine learning GUI.
+### 3. Support Vector Regression (SVR)
 
-### 🎯 Key Requirements:
+**Description:**  
+SVR was added to the GUI. It allows the user to customize hyperparameters such as kernel, C, and epsilon.
 
-*   **Insert Necessary Methods:** Integrate missing machine learning methods within the provided GUI framework.
-*   **Enhance the GUI:** The default interface is provided, but students are encouraged to improve usability and design.
-*   **Ensure Data and Method Appropriateness:** The datasets and algorithms should be compatible within the GUI structure.
-*   **Implement Training and Testing Processes:** Correctly implement model training and evaluation workflows.
-*   **Regular Submissions:** Submit updates every three weeks through Google Classroom for this course.
+**Code:**
+```python
+model = SVR(
+    C=param_widgets["C"].value(),
+    epsilon=param_widgets["epsilon"].value(),
+    kernel=param_widgets["kernel"].currentText()
+)
+```
 
----
+### 4. Support Vector Machine (SVM) – Classification
 
-## 🤝 Repository and Collaboration
+**Description:**  
+SVM is supported for classification. The GUI allows kernel, C, and degree values to be set by the user.
 
-Students should fork this repository and develop their versions.
+**Code:**
+```python
+model = SVC(
+    C=param_widgets["C"].value(),
+    kernel=param_widgets["kernel"].currentText(),
+    degree=param_widgets["degree"].value()
+)
+```
 
-Regular commits and documentation updates are expected.
+### 5. Naive Bayes – Custom Priors and var_smoothing
 
----
+**Description:**  
+GaussianNB was enhanced to allow configuration of `var_smoothing` and optionally accept user-defined class priors.
 
-## 🏁 Getting Started
+**Code:**
+```python
+if prior_type == "Uniform":
+    model = GaussianNB(var_smoothing=var_smoothing)
+else:
+    priors = list(map(float, self.prior_input.text().split(",")))
+    model = GaussianNB(var_smoothing=var_smoothing, priors=priors)
+```
 
-### ⚙️ Prerequisites:
+### 6. Missing Data Handling Options
 
-Ensure you have the following installed:
+**Description:**  
+The user can choose how to handle missing values: Mean Imputation, Interpolation, Forward Fill, Backward Fill.
 
-*   Python 3.8+
+**Code:**
+```python
+if method == "Mean Imputation":
+    imputer = SimpleImputer(strategy="mean")
+    return pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+elif method == "Interpolation":
+    return X.interpolate()
+elif method == "Forward Fill":
+    return X.fillna(method='ffill')
+elif method == "Backward Fill":
+    return X.fillna(method='bfill')
+```
 
-### 📦 Required dependencies:
+### 7. Show Model Name in Metrics Panel
 
-```bash
-pip install numpy pandas matplotlib PyQt6 scikit-learn tensorflow torch torchvision torchaudio opencv-python opencv-contrib-python scipy fastai kornia
+**Description:**  
+The name of the trained model is shown above the metrics for better clarity.
+
+**Code:**
+```python
+metrics_text = f"Model: {name}\n\n"
+```
+
