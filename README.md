@@ -1,4 +1,4 @@
-# 📘 README – Dimensionality Reduction & Clustering GUI Project (19036154)
+# 📘 README – Dimensionality Reduction & Clustering GUI Project (2106A020)
 
 This project delivers an interactive Python GUI application to support dimensionality reduction, clustering, and model validation methods. Below are the integrated features and corresponding core functions.
 
