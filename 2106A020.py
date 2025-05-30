@@ -9,8 +9,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QProgressBar, QCheckBox, QGridLayout, QMessageBox,
                            QDialog, QLineEdit,)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+
 from matplotlib.figure import Figure
 from sklearn import datasets, preprocessing, model_selection
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -63,7 +65,11 @@ class MLCourseGUI(QMainWindow):
         self.create_tabs()
         self.create_visualization()
         self.create_status_bar()
+
     
+
+
+
     
     def load_dataset(self):
         """Load selected dataset"""
@@ -83,11 +89,97 @@ class MLCourseGUI(QMainWindow):
             elif dataset_name == "California Housing Dataset":
                 data = datasets.fetch_california_housing()
             elif dataset_name == "MNIST Dataset":
-                (X_train, y_train), (X_test, y_test) = tf.keras.datasets.mnist.load_data()
-                self.X_train, self.X_test = X_train, X_test
-                self.y_train, self.y_test = y_train, y_test
-                self.status_bar.showMessage(f"Loaded {dataset_name}")
+                from tensorflow.keras.datasets import mnist
+                from tensorflow.keras.utils import to_categorical
+
+                (X_train, y_train), (X_test, y_test) = mnist.load_data()
+
+                # Normalize
+                X_train = X_train.astype("float32") / 255.0
+                X_test = X_test.astype("float32") / 255.0
+
+                # Reshape for Conv2D
+                X_train = X_train.reshape(-1, 28, 28, 1)
+                X_test = X_test.reshape(-1, 28, 28, 1)
+
+                # One-hot encode labels
+                y_train = to_categorical(y_train, 10)
+                y_test = to_categorical(y_test, 10)
+
+                self.X_train = X_train
+                self.X_test = X_test
+                self.y_train = y_train
+                self.y_test = y_test
+                self.status_bar.showMessage("MNIST loaded successfully.")
+            
+                return  # MNIST is handled separately
+            elif dataset_name == "IMDB Sentiment":
+                from tensorflow.keras.datasets import imdb
+                from tensorflow.keras.preprocessing.sequence import pad_sequences
+                from tensorflow.keras.utils import to_categorical
+
+                max_features = 10000  # sadece en sık geçen 10k kelime
+                maxlen = 200          # cümle uzunluğu sabitlenecek
+
+                (X_train, y_train), (X_test, y_test) = imdb.load_data(num_words=max_features)
+
+                # padding
+                X_train = pad_sequences(X_train, maxlen=maxlen)
+                X_test = pad_sequences(X_test, maxlen=maxlen)
+
+                y_train = to_categorical(y_train, 2)
+                y_test = to_categorical(y_test, 2)
+
+                self.X_train = X_train
+                self.X_test = X_test
+                self.y_train = y_train
+                self.y_test = y_test
+                self.status_bar.showMessage("IMDB dataset loaded successfully.")
                 return
+            elif dataset_name == "Jena Climate Dataset":
+                try:
+ 
+
+                    zip_path = tf.keras.utils.get_file(
+                        origin="https://storage.googleapis.com/download.tensorflow.org/data/jena_climate_2009_2016.csv.zip",
+                        fname="jena_climate_2009_2016.csv.zip",
+                        extract=True,
+                    )
+                    csv_path = zip_path.replace(".zip", "")
+                    df = pd.read_csv(csv_path)
+
+                    temp = df["T (degC)"].values
+
+                    def create_sequences(data, window=144):
+                        X, y = [], []
+                        for i in range(len(data) - window):
+                            X.append(data[i:i+window])
+                            y.append(data[i+window])
+                        return np.array(X), np.array(y)
+
+                    X, y = create_sequences(temp, window=144)
+                    X = X[..., np.newaxis]  # RNN için 3D
+
+                    # Train-test split
+                    from sklearn.model_selection import train_test_split
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+                    self.X_train = X_train
+                    self.X_test = X_test
+                    self.y_train = y_train
+                    self.y_test = y_test
+
+                    self.status_bar.showMessage("Jena Climate dataset loaded successfully.")
+                    return
+
+                except Exception as e:
+                    self.show_error(f"Error loading Jena dataset: {str(e)}")
+                    return
+
+            else:
+                self.show_error("Only MNIST is supported in this template.")
+                return
+        
             X = pd.DataFrame(data.data)
             #___________________________________________________________
             X = self.handle_missing_values(X)
@@ -104,11 +196,11 @@ class MLCourseGUI(QMainWindow):
                 self.X_val, self.y_val = None, None  # Val seti yok
 
             else:  # Train/Val/Test
-                # Önce test setini ayır
+                
                 X_temp, self.X_test, y_temp, self.y_test = model_selection.train_test_split(
                     X, data.target, test_size=test_size, random_state=42)
 
-                # Validation oranı: kalan veriye göre hesaplanmalı
+                
                 val_ratio = val_size / (1 - test_size)
 
                 self.X_train, self.X_val, self.y_train, self.y_val = model_selection.train_test_split(
@@ -116,8 +208,7 @@ class MLCourseGUI(QMainWindow):
 
             if self.undersample_checkbox.isChecked():
                 self.apply_undersampling()
-            #___________________________________________________________
-            # Apply scaling if selected
+
             self.apply_scaling()
             
             self.status_bar.showMessage(f"Loaded {dataset_name}")
@@ -127,17 +218,17 @@ class MLCourseGUI(QMainWindow):
     
     def apply_supervised_reduction(self):
         try:
-            # LDA ile boyut indirgeme (en fazla class_count - 1 bileşen olabilir)
+            
             class_count = len(np.unique(self.y_train))
-            n_components = min(class_count - 1, 2)  # Görselleştirme için 2 ile sınırla
+            n_components = min(class_count - 1, 2)  
 
             lda = LDA(n_components=n_components)
             X_lda = lda.fit_transform(self.X_train, self.y_train)
 
-            # Skor hesapla (örnek olarak Silhouette kullanıyoruz)
+
             score = silhouette_score(X_lda, self.y_train)
 
-            # Görselleştir
+
             self.figure.clear()
             ax = self.figure.add_subplot(111)
             scatter = ax.scatter(X_lda[:, 0], X_lda[:, 1], c=self.y_train, cmap='viridis')
@@ -152,7 +243,7 @@ class MLCourseGUI(QMainWindow):
     
     
     def load_custom_data(self):
-        """Load custom dataset from CSV file"""
+        """Load custom dataset from CSV file with sliding window for RNN"""
         try:
             file_name, _ = QFileDialog.getOpenFileName(
                 self,
@@ -162,10 +253,9 @@ class MLCourseGUI(QMainWindow):
             )
             
             if file_name:
-                # Load data
+
                 data = pd.read_csv(file_name)
 
-                # Ask user to select target column
                 target_col = self.select_target_column(data.columns)
 
                 if target_col:
@@ -173,22 +263,36 @@ class MLCourseGUI(QMainWindow):
                     X = self.handle_missing_values(X)
                     y = data[target_col]
 
-                    # Split parameters from GUI
+                    # Pencereleme fonksiyonu (sliding window)
+                    def create_sequences(X_array, y_array, window_size=7):
+                        Xs, ys = [], []
+                        for i in range(len(X_array) - window_size):
+                            Xs.append(X_array[i:i+window_size])
+                            ys.append(y_array[i+window_size])
+                        return np.array(Xs), np.array(ys)
+
+                    # Numpy dizilerine çevir
+                    X_np = X.values
+                    y_np = y.values
+                    X_np = X_np.astype(np.float32)
+                    y_np = y_np.astype(np.float32)
+                    window_size = 7  # isteğe bağlı, GUI üzerinden ayarlanabilir
+
+                    X_seq, y_seq = create_sequences(X_np, y_np, window_size)
+
                     split_type = self.split_type_combo.currentText()
                     test_size = self.split_spin.value()
                     val_size = self.val_split_spin.value()
 
                     if split_type == "Train/Test":
                         self.X_train, self.X_test, self.y_train, self.y_test = model_selection.train_test_split(
-                            X, y, test_size=test_size, random_state=42)
+                            X_seq, y_seq, test_size=test_size, random_state=42)
                         self.X_val, self.y_val = None, None
 
                     else:  # Train/Val/Test
-                        # Önce test setini ayır
                         X_temp, self.X_test, y_temp, self.y_test = model_selection.train_test_split(
-                            X, y, test_size=test_size, random_state=42)
+                            X_seq, y_seq, test_size=test_size, random_state=42)
 
-                        # Validation oranı kalan veri üzerinden
                         val_ratio = val_size / (1 - test_size)
 
                         self.X_train, self.X_val, self.y_train, self.y_val = model_selection.train_test_split(
@@ -199,11 +303,12 @@ class MLCourseGUI(QMainWindow):
 
                     # Apply scaling if selected
                     self.apply_scaling()
-                    
-                    self.status_bar.showMessage(f"Loaded custom dataset: {file_name}")
-                    
+
+                    self.status_bar.showMessage(f"Loaded custom dataset with window size {window_size}: {file_name}")
+
         except Exception as e:
             self.show_error(f"Error loading custom dataset: {str(e)}")
+
     
     
     def select_target_column(self, columns):
@@ -273,7 +378,10 @@ class MLCourseGUI(QMainWindow):
             "Breast Cancer Dataset",
             "Digits Dataset",
             "California Housing Dataset",
-            "MNIST Dataset"
+            "MNIST Dataset",
+            "IMDB Sentiment",
+            "Jena Climate Dataset"
+
         ])
         self.dataset_combo.currentIndexChanged.connect(self.load_dataset)
         row1_layout.addWidget(QLabel("Dataset:"))
@@ -421,7 +529,7 @@ class MLCourseGUI(QMainWindow):
         regression_layout.addWidget(rf_group)
         
 
-#____________________________________________________        
+     
         svr_group = self.create_algorithm_group(
             "Support Vector Regression",
             {
@@ -431,7 +539,7 @@ class MLCourseGUI(QMainWindow):
             }
         )
         regression_layout.addWidget(svr_group)
-#_____________________________________________________       
+      
         # Logistic Regression
         logistic_group = self.create_algorithm_group(
             "Logistic Regression",
@@ -443,7 +551,7 @@ class MLCourseGUI(QMainWindow):
        
 
         regression_group.setLayout(regression_layout)
-#_________________________________________________________
+
         layout.addWidget(regression_group, 0, 0)
         
         # Classification section
@@ -458,7 +566,7 @@ class MLCourseGUI(QMainWindow):
         clf_loss_layout.addWidget(clf_loss_label)
         clf_loss_layout.addWidget(self.classification_loss_combo)
         classification_layout.addLayout(clf_loss_layout)
-#_______________________________________________________
+
         # Naive Bayes
         nb_group = self.create_algorithm_group(
             "Naive Bayes",
@@ -478,7 +586,7 @@ class MLCourseGUI(QMainWindow):
         self.prior_input = QLineEdit()
         self.prior_input.setPlaceholderText("e.g., 0.3, 0.7")
         prior_layout.addWidget(self.prior_input)
-#__________________________________________________________________
+
         classification_layout.addLayout(prior_layout)
         
         # SVM
@@ -529,7 +637,7 @@ class MLCourseGUI(QMainWindow):
         widget = QWidget()
         layout = QGridLayout(widget)  # QVBoxLayout yerine QGridLayout
 
-        # === PCA Bölümü ===
+        # === PCA 
         pca_group = QGroupBox("PCA Settings")
         pca_layout = QVBoxLayout()
         self.n_components_spin = QSpinBox()
@@ -548,7 +656,7 @@ class MLCourseGUI(QMainWindow):
         pca_var_btn.clicked.connect(self.apply_pca_and_plot_variance)
         pca_layout.addWidget(pca_var_btn)
 
-        # 2D/3D Görselleştirme Seçimi
+
         self.pca_vis_combo = QComboBox()
         self.pca_vis_combo.addItems(["2D", "3D"])
         pca_layout.addWidget(QLabel("Visualization Type:"))
@@ -565,7 +673,7 @@ class MLCourseGUI(QMainWindow):
 
         pca_group.setLayout(pca_layout)
 
-        # === t-SNE Bölümü ===
+        # === t-SNE
         tsne_group = QGroupBox("t-SNE Settings")
         tsne_layout = QVBoxLayout()
         self.tsne_perplexity_spin = QDoubleSpinBox()
@@ -585,7 +693,7 @@ class MLCourseGUI(QMainWindow):
 
         tsne_group.setLayout(tsne_layout)
 
-        # === UMAP Bölümü ===
+        # === UMAP
         umap_group = QGroupBox("UMAP Settings")
         umap_layout = QVBoxLayout()
         self.umap_n_neighbors_spin = QSpinBox()
@@ -615,7 +723,7 @@ class MLCourseGUI(QMainWindow):
 
         umap_group.setLayout(umap_layout)
 
-        # === LDA Bölümü ===
+        # === LDA
         lda_group = QGroupBox("LDA (Supervised Reduction)")
         lda_layout = QVBoxLayout()
         lda_btn = QPushButton("Apply LDA and Visualize")
@@ -623,7 +731,7 @@ class MLCourseGUI(QMainWindow):
         lda_layout.addWidget(lda_btn)
         lda_group.setLayout(lda_layout)
 
-        # === K-Means Bölümü ===
+        # === K-Means
         kmeans_group = QGroupBox("K-Means Clustering")
         kmeans_layout = QVBoxLayout()
         self.kmeans_n_clusters = QSpinBox()
@@ -652,7 +760,7 @@ class MLCourseGUI(QMainWindow):
 
         kmeans_group.setLayout(kmeans_layout)
 
-        # --- Yerleşim düzeni (grid) ekleme ---
+
         layout.addWidget(pca_group,   0, 0)
         layout.addWidget(tsne_group,  0, 1)
         layout.addWidget(umap_group,  1, 0)
@@ -700,27 +808,48 @@ class MLCourseGUI(QMainWindow):
         
         return widget
     
-    
     def create_visualization(self):
-        """Create the visualization section"""
         viz_group = QGroupBox("Visualization")
-        viz_layout = QHBoxLayout()
-        
-        # Create matplotlib figure
+        viz_layout = QVBoxLayout()
+
+        # Ana tab widget
+        self.viz_tab_widget = QTabWidget()
+
+        # --- Tab 1: Normal Visualization ---
+        normal_viz_widget = QWidget()
+        normal_viz_layout = QHBoxLayout(normal_viz_widget)
+
         self.figure = Figure(figsize=(8, 6))
         self.canvas = FigureCanvas(self.figure)
-        viz_layout.addWidget(self.canvas)
-        
-        # Metrics display
+
         self.metrics_text = QTextEdit()
         self.metrics_text.setReadOnly(True)
-        viz_layout.addWidget(self.metrics_text)
-        
+
+        normal_viz_layout.addWidget(self.canvas, stretch=3)
+        normal_viz_layout.addWidget(self.metrics_text, stretch=1)
+        self.viz_tab_widget.addTab(normal_viz_widget, "Plots & Metrics")
+
+        # --- Tab 2: Confusion Matrix ---
+        cm_widget = QWidget()
+        cm_layout = QVBoxLayout(cm_widget)
+        self.confusion_matrix_label = QLabel("Confusion Matrix will appear here after training.")
+        self.confusion_matrix_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cm_layout.addWidget(self.confusion_matrix_label)
+        self.viz_tab_widget.addTab(cm_widget, "Confusion Matrix")
+
+        # --- Tab 3: Gradient Histogram ---
+        gradient_widget = QWidget()
+        gradient_layout = QVBoxLayout(gradient_widget)
+        self.gradient_figure = Figure(figsize=(6, 4))
+        self.gradient_canvas = FigureCanvas(self.gradient_figure)
+        gradient_layout.addWidget(self.gradient_canvas)
+        self.viz_tab_widget.addTab(gradient_widget, "Gradient Histogram")
+
+        # Artık tabları ekledikten sonra widget'ı layout'a ekle
+        viz_layout.addWidget(self.viz_tab_widget)
         viz_group.setLayout(viz_layout)
         self.layout.addWidget(viz_group)
-        viz_layout.addWidget(self.canvas, stretch=3)         # %75 genişlik
-        viz_layout.addWidget(self.metrics_text, stretch=1)   # %25 genişlik
-    
+
     
     def create_status_bar(self):
         """Create the status bar"""
@@ -768,7 +897,7 @@ class MLCourseGUI(QMainWindow):
         group.setLayout(layout)
         return group
     
-    #_______________________________________________________
+
 
     def train_model(self, name, param_widgets):
         try:
@@ -781,7 +910,7 @@ class MLCourseGUI(QMainWindow):
 
             model = None
 
-            # MODELLER
+
             if name == "Linear Regression":
                 model = LinearRegression(fit_intercept=param_widgets["fit_intercept"].isChecked())
 
@@ -841,7 +970,7 @@ class MLCourseGUI(QMainWindow):
                 self.show_error("This model is not yet supported.")
                 return
 
-# ====== K-FOLD CROSS VALIDATION KISMI ======
+# ====== K-FOLD CROSS VALIDATION
             if use_kfold:
                 if selected_metric == "Accuracy":
                     scoring = "accuracy"
@@ -863,7 +992,7 @@ class MLCourseGUI(QMainWindow):
                 return
 
 
-            # ====== NORMAL TRAIN/TEST EĞİTİM ======
+            # ====== NORMAL TRAIN/TEST 
             start_time = time.time()
             model.fit(self.X_train, self.y_train)
             end_time = time.time()
@@ -874,7 +1003,7 @@ class MLCourseGUI(QMainWindow):
             self.current_model_name = name
             self.current_model = model
 
-            # METRİKLERİ HAZIRLAYALIM
+
             metrics_text = f"Model: {self.current_model_name}\n"
             metrics_text += f"Training Time: {elapsed_time:.4f} seconds\n\n"
 
@@ -895,7 +1024,7 @@ class MLCourseGUI(QMainWindow):
                 metrics_text += f"Loss ({loss_type}): {loss_value:.4f}\n"
                 metrics_text += f"R² Score: {r2:.4f}\n"
 
-            else:  # Classification modeller
+            else: 
                 loss_type = self.classification_loss_combo.currentText()
                 if hasattr(model, 'predict_proba'):
                     y_proba = model.predict_proba(self.X_test)
@@ -910,11 +1039,35 @@ class MLCourseGUI(QMainWindow):
                 metrics_text += f"Loss ({loss_type}): {loss_value:.4f}\n\n"
                 metrics_text += "Confusion Matrix:\n"
                 metrics_text += str(conf_matrix)
+            
+            import seaborn as sns
 
-            # METRİK PANELİNİ GÜNCELLE
+            if len(np.unique(self.y_test)) <= 10:  # Sınıflandırma için
+                cm = confusion_matrix(self.y_test, y_pred)
+                fig, ax = plt.subplots(figsize=(6,5))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                ax.set_title('Confusion Matrix')
+
+                # Eğer daha önce varsa eski canvas kaldır
+                if hasattr(self, 'cm_canvas'):
+                    self.cm_canvas.setParent(None)
+
+                self.cm_canvas = FigureCanvas(fig)
+
+                cm_tab_layout = self.confusion_matrix_label.parentWidget().layout()
+
+                # Eski label'ı kaldır
+                self.confusion_matrix_label.setParent(None)
+
+                cm_tab_layout.addWidget(self.cm_canvas)
+                self.cm_canvas.draw()
+
+                # Confusion Matrix tabını aktif et
+                self.viz_tab_widget.setCurrentIndex(1)
             self.metrics_text.setText(metrics_text)
 
-            # Görselleştirme ve diğer güncellemeler
             self.update_visualization(y_pred)
 
         except Exception as e:
@@ -923,7 +1076,7 @@ class MLCourseGUI(QMainWindow):
 
     def plot_pca_scatter(self):
         try:
-            vis_type = self.pca_vis_combo.currentText()  # Kullanıcının seçimi
+            vis_type = self.pca_vis_combo.currentText() 
             n_components = 3 if vis_type == "3D" else 2
             pca = PCA(n_components=n_components)
             X_pca = pca.fit_transform(self.X_train)
@@ -972,13 +1125,13 @@ class MLCourseGUI(QMainWindow):
         try:
             import numpy as np
 
-            # X_train'den covariance matrix hesapla
+
             X = np.array(self.X_train)
 
-            cov_matrix = np.cov(X, rowvar=False)  # Features üzerinden kovaryans
+            cov_matrix = np.cov(X, rowvar=False) 
             eigenvalues, eigenvectors = np.linalg.eig(cov_matrix)
 
-            # Covariance Matrix ve Eigen Değerler Vektörler Text Hazırla
+
             text = "Covariance Matrix (Σ):\n"
             text += str(np.round(cov_matrix, 4)) + "\n\n"
 
@@ -988,7 +1141,7 @@ class MLCourseGUI(QMainWindow):
             text += "Eigenvectors (v):\n"
             text += str(np.round(eigenvectors, 4)) + "\n"
 
-            # Sonucu göster
+
             dialog = QDialog(self)
             dialog.setWindowTitle("PCA Manual View")
 
@@ -1076,7 +1229,7 @@ class MLCourseGUI(QMainWindow):
 
             df = pd.DataFrame(X_pca, columns=[f"PC{i+1}" for i in range(X_pca.shape[1])])
 
-            # Güvenli eşleme
+
             y_series = pd.Series(self.y_train).reset_index(drop=True)[:len(df)]
             df['target'] = y_series
 
@@ -1140,7 +1293,7 @@ class MLCourseGUI(QMainWindow):
             from sklearn.metrics import silhouette_score
             score = silhouette_score(X_embedded, self.y_train)
 
-            # --- Plotly ile çizim ---
+
             
             if n_components == 2:
                 fig = px.scatter(x=X_embedded[:, 0], y=X_embedded[:, 1], color=self.y_train)
@@ -1177,50 +1330,32 @@ class MLCourseGUI(QMainWindow):
     
     def extract_features_from_signal(self):
         try:
-            import os
-            from collections import defaultdict
-
-            file_name, _ = QFileDialog.getOpenFileName(self, "Select Raw EMG CSV", "", "CSV Files (*.csv)")
+            file_name, _ = QFileDialog.getOpenFileName(self, "Select CSV Dataset", "", "CSV Files (*.csv)")
             if not file_name:
                 return
 
             df_raw = pd.read_csv(file_name)
-            segment_size = self.segment_size_spin.value()
-            target_column = "class"
-            channels = [f"channel{i}" for i in range(1, 9)]
+            all_columns = list(df_raw.columns)
 
-            if self.undersample_checkbox.isChecked():
-                min_count = df_raw[target_column].value_counts().min()
-                df_raw = df_raw.groupby(target_column).apply(lambda x: x.sample(min_count, random_state=42)).reset_index(drop=True)
-                self.status_bar.showMessage("Undersampling uygulandı.")
+            dialog = ColumnSelectionDialog(all_columns, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_cols = dialog.get_selected_columns()
+            else:
+                self.status_bar.showMessage("Feature extraction cancelled.")
+                return
 
-            features_list = []
-            labels_list = []
+            features = {}
+            for col in selected_cols:
+                data = df_raw[col].values
+                features[f"{col}_mean"] = np.mean(data)
+                features[f"{col}_std"] = np.std(data)
+                features[f"{col}_min"] = np.min(data)
+                features[f"{col}_max"] = np.max(data)
+                features[f"{col}_rms"] = np.sqrt(np.mean(data**2))
 
-            for i in range(0, len(df_raw) - segment_size + 1, segment_size):
-                segment = df_raw.iloc[i:i+segment_size]
-                label = segment[target_column].mode()[0]
+            df_features = pd.DataFrame([features])
 
-                segment_features = []
-                for ch in channels:
-                    data = segment[ch].values
-                    segment_features.extend([
-                        np.mean(data),
-                        np.std(data),
-                        np.min(data),
-                        np.max(data),
-                        np.sqrt(np.mean(data**2))
-                    ])
-
-                features_list.append(segment_features)
-                labels_list.append(label)
-
-            # DataFrame oluştur
-            column_names = [f"{ch}_{stat}" for ch in channels for stat in ['mean', 'std', 'min', 'max', 'rms']]
-            df_features = pd.DataFrame(features_list, columns=column_names)
-            df_features["class"] = labels_list
-
-            save_path, _ = QFileDialog.getSaveFileName(self, "Save Features CSV", "", "CSV Files (*.csv)")
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save Feature CSV", "", "CSV Files (*.csv)")
             if save_path:
                 df_features.to_csv(save_path, index=False)
                 self.status_bar.showMessage(f"Öznitelikler çıkarıldı ve kaydedildi: {save_path}")
@@ -1229,6 +1364,7 @@ class MLCourseGUI(QMainWindow):
 
         except Exception as e:
             self.show_error(f"Öznitelik çıkarma hatası: {str(e)}")
+
     
     
     def apply_umap(self):
@@ -1296,7 +1432,7 @@ class MLCourseGUI(QMainWindow):
             tsne = TSNE(n_components=dims, perplexity=perplexity, init='random', random_state=42)
             X_embedded = tsne.fit_transform(self.X_train)
 
-            # --- Silhouette score hesapla ---
+            # --- Silhouette score
             try:
                 score = silhouette_score(X_embedded, self.y_train)
                 title_text = f"t-SNE Projection (Silhouette Score: {score:.4f})"
@@ -1304,7 +1440,7 @@ class MLCourseGUI(QMainWindow):
                 title_text = "t-SNE Projection (Silhouette Score: N/A)"
                 print("Silhouette Score Error (t-SNE):", e)
 
-            # --- Plotly görselleştirme ---
+            # --- Plotly
             if dims == 2:
                 fig = px.scatter(x=X_embedded[:, 0], y=X_embedded[:, 1], color=self.y_train)
             else:
@@ -1330,7 +1466,7 @@ class MLCourseGUI(QMainWindow):
             inertia = kmeans.inertia_
             sil_score = silhouette_score(self.X_train, cluster_labels)
 
-            # PCA ile görselleştir
+            # PCA visualization
             pca = PCA(n_components=2)
             X_vis = pca.fit_transform(self.X_train)
 
@@ -1390,19 +1526,57 @@ class MLCourseGUI(QMainWindow):
         layer_btn = QPushButton("Add Layer")
         layer_btn.clicked.connect(self.add_layer_dialog)
         mlp_layout.addWidget(layer_btn)
-        
+        self.layer_list_widget = QListWidget()
+        mlp_layout.addWidget(self.layer_list_widget)
+
+        # Sağ tıklama menüsü (isteğe bağlı)
+        self.layer_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.layer_list_widget.customContextMenuRequested.connect(self.show_layer_context_menu)
+
+        # Learning rate
+        lr_layout = QHBoxLayout()
+        # Optimizer selection
+        optimizer_layout = QHBoxLayout()
+        optimizer_layout.addWidget(QLabel("Optimizer:"))
+        self.optimizer_combo = QComboBox()
+        self.optimizer_combo.addItems(["Adam", "SGD", "RMSprop"])
+        optimizer_layout.addWidget(self.optimizer_combo)
+        layout.addLayout(optimizer_layout, 3, 0, 1, 2)
+
+        # Early stopping checkbox
+        self.early_stop_checkbox = QCheckBox("Use Early Stopping")
+        self.early_stop_checkbox.setChecked(True)  # varsayılan açık
+        layout.addWidget(self.early_stop_checkbox)
+
+
         # Training parameters
         training_params_group = self.create_training_params_group()
         mlp_layout.addWidget(training_params_group)
+        
+        self.lr_schedule_combo = QComboBox()
+        self.lr_schedule_combo.addItems(["None", "Step Decay", "Exponential Decay"])
+        layout.addWidget(QLabel("Learning Rate Schedule:"))
+        layout.addWidget(self.lr_schedule_combo)
+        
+
         
         # Train button
         train_btn = QPushButton("Train Neural Network")
         train_btn.clicked.connect(self.train_neural_network)
         mlp_layout.addWidget(train_btn)
+        self.plot_gradients_checkbox = QCheckBox("Show Gradient Histogram During Training")
+        mlp_layout.addWidget(self.plot_gradients_checkbox)
         
         mlp_group.setLayout(mlp_layout)
         layout.addWidget(mlp_group, 0, 0)
-        
+        save_btn = QPushButton("Save Model")
+        save_btn.clicked.connect(self.save_model_architecture)
+        layout.addWidget(save_btn)
+
+        load_btn = QPushButton("Load Model")
+        load_btn.clicked.connect(self.load_model_architecture)
+        layout.addWidget(load_btn)
+
         # CNN section
         cnn_group = QGroupBox("Convolutional Neural Network")
         cnn_layout = QVBoxLayout()
@@ -1413,6 +1587,63 @@ class MLCourseGUI(QMainWindow):
         
         cnn_group.setLayout(cnn_layout)
         layout.addWidget(cnn_group, 0, 1)
+
+        # Data Augmentation Section
+        augment_group = QGroupBox("Data Augmentation")
+        augment_layout = QVBoxLayout()
+
+        self.augment_checkbox = QCheckBox("Use Data Augmentation")
+        augment_layout.addWidget(self.augment_checkbox)
+
+        # Rotation
+        rotation_layout = QHBoxLayout()
+        rotation_layout.addWidget(QLabel("Rotation Range:"))
+        self.rotation_spin = QSpinBox()
+        self.rotation_spin.setRange(0, 90)
+        self.rotation_spin.setValue(20)
+        rotation_layout.addWidget(self.rotation_spin)
+        augment_layout.addLayout(rotation_layout)
+
+        # Zoom
+        zoom_layout = QHBoxLayout()
+        zoom_layout.addWidget(QLabel("Zoom Range:"))
+        self.zoom_spin = QDoubleSpinBox()
+        self.zoom_spin.setRange(0.0, 1.0)
+        self.zoom_spin.setSingleStep(0.05)
+        self.zoom_spin.setValue(0.15)
+        zoom_layout.addWidget(self.zoom_spin)
+        augment_layout.addLayout(zoom_layout)
+
+        # Flip
+        self.flip_checkbox = QCheckBox("Enable Horizontal Flip")
+        augment_layout.addWidget(self.flip_checkbox)
+
+        augment_group.setLayout(augment_layout)
+        layout.addWidget(augment_group, 1, 1)
+
+        # === Pretrained Models ===
+        pretrained_group = QGroupBox("Pretrained Models")
+        pretrained_layout = QVBoxLayout()
+
+        self.pretrained_combo = QComboBox()
+        self.pretrained_combo.addItems(["None", "VGG16", "ResNet50"])
+        pretrained_layout.addWidget(QLabel("Select Pretrained Model:"))
+        pretrained_layout.addWidget(self.pretrained_combo)
+
+        self.load_image_btn = QPushButton("Load Image Folder")
+        self.load_image_btn.clicked.connect(self.load_image_folder_dataset)
+        pretrained_layout.addWidget(self.load_image_btn)
+        train_pre_btn = QPushButton("Train Pretrained Model")
+        train_pre_btn.clicked.connect(self.train_pretrained_model)
+        pretrained_layout.addWidget(train_pre_btn)
+
+        pretrained_btn = QPushButton("Load Pretrained Model")
+        pretrained_btn.clicked.connect(self.load_pretrained_model)
+        pretrained_layout.addWidget(pretrained_btn)
+
+        pretrained_group.setLayout(pretrained_layout)
+        layout.addWidget(pretrained_group)
+
         
         # RNN section
         rnn_group = QGroupBox("Recurrent Neural Network")
@@ -1426,126 +1657,242 @@ class MLCourseGUI(QMainWindow):
         layout.addWidget(rnn_group, 1, 0)
         
         return widget
+    def update_layer_display(self):
+            text = "Current Layer Configuration:\n\n"
+            for i, layer in enumerate(self.layer_config):
+                text += f"{i+1}. {layer['type']} - {layer['params']}\n"
+            self.layer_display.setText(text)
     
-    
-    def add_layer_dialog(self):
-        """Open a dialog to add a neural network layer"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Add Neural Network Layer")
-        layout = QVBoxLayout(dialog)
-        
-        # Layer type selection
-        type_layout = QHBoxLayout()
-        type_label = QLabel("Layer Type:")
-        type_combo = QComboBox()
-        type_combo.addItems(["Dense", "Conv2D", "MaxPooling2D", "Flatten", "Dropout"])
-        type_layout.addWidget(type_label)
-        type_layout.addWidget(type_combo)
-        layout.addLayout(type_layout)
-        
-        # Parameters input
-        params_group = QGroupBox("Layer Parameters")
-        params_layout = QVBoxLayout()
-        
-        # Dynamic parameter inputs based on layer type
-        self.layer_param_inputs = {}
-        
-        def update_params():
-            # Clear existing parameter inputs
-            for widget in list(self.layer_param_inputs.values()):
-                params_layout.removeWidget(widget)
-                widget.deleteLater()
-            self.layer_param_inputs.clear()
+    def add_layer_dialog(self, existing_layer=None, index=None):
+            """Open a dialog to add or edit a neural network layer"""
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Add Neural Network Layer" if existing_layer is None else "Edit Layer")
+            layout = QVBoxLayout(dialog)
+
+            # Layer type selection
+            type_layout = QHBoxLayout()
+            type_label = QLabel("Layer Type:")
+            type_combo = QComboBox()
+            type_combo.addItems(["Dense", "Conv2D", "MaxPooling2D", "Flatten", "Dropout"," BatchNormalization",])
+            type_layout.addWidget(type_label)
+            type_layout.addWidget(type_combo)
+            layout.addLayout(type_layout)
+
+            # Parameters input
+            params_group = QGroupBox("Layer Parameters")
+            params_layout = QVBoxLayout()
+            self.layer_param_inputs = {}
+
+            def update_params():
+                # Clear previous parameter widgets
+                for i in reversed(range(params_layout.count())):
+                    widget_to_remove = params_layout.itemAt(i).widget()
+                    if widget_to_remove:
+                        params_layout.removeWidget(widget_to_remove)
+                        widget_to_remove.setParent(None) # Ensure it's properly deleted
+                self.layer_param_inputs.clear()
+
+                layer_type = type_combo.currentText()
+                if layer_type == "Dense":
+                    units_input = QSpinBox()
+                    units_input.setRange(1, 4096)
+                    units_input.setValue(128)
+                    self.layer_param_inputs["units"] = units_input
+
+                    activation_combo = QComboBox()
+                    activation_combo.addItems(["relu", "sigmoid", "tanh", "softmax", "linear"])
+                    self.layer_param_inputs["activation"] = activation_combo
+
+                    # ------- BURASI YENİ -------
+                    l2_checkbox = QCheckBox("Use L2 Regularization")
+                    l2_rate     = QDoubleSpinBox()
+                    l2_rate.setRange(0.0001, 0.1)
+                    l2_rate.setValue(0.001)
+                    params_layout.addWidget(l2_checkbox)
+                    params_layout.addWidget(QLabel("L2 Rate:"))
+                    params_layout.addWidget(l2_rate)
+
+                    self.layer_param_inputs["use_l2"] = l2_checkbox
+                    self.layer_param_inputs["l2_rate"] = l2_rate
+                    # --------------------------
+                    
+                    params_layout.addWidget(QLabel("Units:"))
+                    params_layout.addWidget(units_input)
+                    params_layout.addWidget(QLabel("Activation:"))
+                    params_layout.addWidget(activation_combo)
+
+                elif layer_type == "Conv2D":
+                    filters_input = QSpinBox()
+                    filters_input.setRange(1, 1024) # Increased range
+                    filters_input.setValue(32)
+                    self.layer_param_inputs["filters"] = filters_input
+
+                    kernel_input = QLineEdit()
+                    kernel_input.setText("3,3") # No space for consistency
+                    self.layer_param_inputs["kernel_size"] = kernel_input
+                    
+                    conv_activation_combo = QComboBox()
+                    conv_activation_combo.addItems(["relu", "sigmoid", "tanh", "linear"]) # Linear for no activation
+                    conv_activation_combo.setCurrentText("relu") # Default to relu
+                    self.layer_param_inputs["activation"] = conv_activation_combo
+
+                    params_layout.addWidget(QLabel("Filters:"))
+                    params_layout.addWidget(filters_input)
+                    params_layout.addWidget(QLabel("Kernel Size (örn: 3,3):"))
+                    params_layout.addWidget(kernel_input)
+                    params_layout.addWidget(QLabel("Activation:"))
+                    params_layout.addWidget(conv_activation_combo)
+
+                    l2_checkbox = QCheckBox("Use L2 Regularization")
+                    l2_rate = QDoubleSpinBox()
+                    l2_rate.setRange(0.0001, 0.1)
+                    l2_rate.setValue(0.001)
+                    params_layout.addWidget(l2_checkbox)
+                    params_layout.addWidget(QLabel("L2 Rate:"))
+                    params_layout.addWidget(l2_rate)
+
+                    self.layer_param_inputs["use_l2"] = l2_checkbox
+                    self.layer_param_inputs["l2_rate"] = l2_rate
+
+                elif layer_type == "Dropout":
+                    rate_input = QDoubleSpinBox()
+                    rate_input.setRange(0.0, 0.9) # Max 0.9 is more common
+                    rate_input.setSingleStep(0.1)
+                    rate_input.setValue(0.5)
+                    self.layer_param_inputs["rate"] = rate_input
+
+                    params_layout.addWidget(QLabel("Dropout Rate:"))
+                    params_layout.addWidget(rate_input)
+
+                elif layer_type == "MaxPooling2D":
+                    pool_label = QLabel("Pool Size (örn: 2,2):")
+                    pool_input = QLineEdit()
+                    pool_input.setText("2,2") # No space
+                    self.layer_param_inputs["pool_size"] = pool_input
+
+                    params_layout.addWidget(pool_label)
+                    params_layout.addWidget(pool_input)
+
+                elif layer_type == "BatchNormalization":
+                    # BatchNormalization katmanının genelde parametreye ihtiyacı yoktur
+                    notice_label = QLabel("Bu katmanın yapılandırma parametresi yok.")
+                    params_layout.addWidget(notice_label)
+                    self.layer_param_inputs.clear()
             
-            layer_type = type_combo.currentText()
-            if layer_type == "Dense":
-                units_label = QLabel("Units:")
-                units_input = QSpinBox()
-                units_input.setRange(1, 1000)
-                units_input.setValue(32)
-                self.layer_param_inputs["units"] = units_input
-                
-                activation_label = QLabel("Activation:")
-                activation_combo = QComboBox()
-                activation_combo.addItems(["relu", "sigmoid", "tanh", "softmax"])
-                self.layer_param_inputs["activation"] = activation_combo
-                
-                params_layout.addWidget(units_label)
-                params_layout.addWidget(units_input)
-                params_layout.addWidget(activation_label)
-                params_layout.addWidget(activation_combo)
+            type_combo.currentIndexChanged.connect(update_params)
             
-            elif layer_type == "Conv2D":
-                filters_label = QLabel("Filters:")
-                filters_input = QSpinBox()
-                filters_input.setRange(1, 1000)
-                filters_input.setValue(32)
-                self.layer_param_inputs["filters"] = filters_input
-                
-                kernel_label = QLabel("Kernel Size:")
-                kernel_input = QLineEdit()
-                kernel_input.setText("3, 3")
-                self.layer_param_inputs["kernel_size"] = kernel_input
-                
-                params_layout.addWidget(filters_label)
-                params_layout.addWidget(filters_input)
-                params_layout.addWidget(kernel_label)
-                params_layout.addWidget(kernel_input)
+            params_group.setLayout(params_layout)
+            layout.addWidget(params_group)
+
+            # Load existing layer values if in edit mode
+            if existing_layer:
+                type_combo.setCurrentText(existing_layer["type"])
+                # Manually trigger update_params because currentIndexChanged might not fire if type is already set
+                update_params() # Call update_params to ensure widgets for the type are created
+                QApplication.processEvents() # Process events to ensure UI updates
+
+                for param_name, value in existing_layer["params"].items():
+                    widget = self.layer_param_inputs.get(param_name)
+                    if widget:
+                        if isinstance(widget, QSpinBox):
+                            widget.setValue(int(value))
+                        elif isinstance(widget, QDoubleSpinBox):
+                            widget.setValue(float(value))
+                        elif isinstance(widget, QComboBox):
+                            idx = widget.findText(str(value))
+                            if idx >= 0:
+                                widget.setCurrentIndex(idx)
+                        elif isinstance(widget, QLineEdit):
+                            if isinstance(value, (tuple, list)):
+                                widget.setText(",".join(map(str, value))) # Use comma without space
+                            else:
+                                widget.setText(str(value))
+            else:
+                update_params()  # Initial load of parameters for the default selected type
+
+            # Buttons
+            btn_layout = QHBoxLayout()
+            add_btn = QPushButton("Update Layer" if existing_layer else "Add Layer")
+            cancel_btn = QPushButton("Cancel")
+            btn_layout.addWidget(add_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            def save_layer():
+                layer_type = type_combo.currentText()
+                layer_params = {}
+                try:
+                    for param_name, widget in self.layer_param_inputs.items():
+                        if isinstance(widget, QSpinBox):
+                            layer_params[param_name] = widget.value()
+                        elif isinstance(widget, QDoubleSpinBox):
+                            layer_params[param_name] = widget.value()
+                        elif isinstance(widget, QComboBox):
+                            layer_params[param_name] = widget.currentText()
+                        elif isinstance(widget, QLineEdit):
+                            text_value = widget.text().replace(" ", "") # Remove spaces
+                            if param_name in ["kernel_size", "pool_size"]:
+                                # Ensure it's a tuple of two integers
+                                parts = tuple(map(int, text_value.split(',')))
+                                if len(parts) == 2:
+                                    layer_params[param_name] = parts
+                                else:
+                                    raise ValueError(f"{param_name} iki tam sayıdan oluşmalıdır (örn: 3,3)")
+                            else:
+                                layer_params[param_name] = text_value # Store as string if not special handling
+                except ValueError as e:
+                    self.show_error(f"Parametre hatası: {e}")
+                    return
+
+
+                new_layer = {
+                    "type": layer_type,
+                    "params": layer_params
+                }
+
+                if index is not None: # Editing existing layer
+                    self.layer_config[index] = new_layer
+                else: # Adding new layer
+                    self.layer_config.append(new_layer)
+
+                dialog.accept()
+                self.update_layer_display() # Make sure this updates the QListWidget
+
+            add_btn.clicked.connect(save_layer)
+            cancel_btn.clicked.connect(dialog.reject)
+            dialog.exec()
             
-            elif layer_type == "Dropout":
-                rate_label = QLabel("Dropout Rate:")
-                rate_input = QDoubleSpinBox()
-                rate_input.setRange(0.0, 1.0)
-                rate_input.setValue(0.5)
-                rate_input.setSingleStep(0.1)
-                self.layer_param_inputs["rate"] = rate_input
-                
-                params_layout.addWidget(rate_label)
-                params_layout.addWidget(rate_input)
-        
-        type_combo.currentIndexChanged.connect(update_params)
-        update_params()  # Initial update
-        
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
-        
-        # Buttons
-        btn_layout = QHBoxLayout()
-        add_btn = QPushButton("Add Layer")
-        cancel_btn = QPushButton("Cancel")
-        btn_layout.addWidget(add_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-        
-        def add_layer():
-            layer_type = type_combo.currentText()
-            
-            # Collect parameters
-            layer_params = {}
-            for param_name, widget in self.layer_param_inputs.items():
-                if isinstance(widget, QSpinBox):
-                    layer_params[param_name] = widget.value()
-                elif isinstance(widget, QDoubleSpinBox):
-                    layer_params[param_name] = widget.value()
-                elif isinstance(widget, QComboBox):
-                    layer_params[param_name] = widget.currentText()
-                elif isinstance(widget, QLineEdit):
-                    # Handle kernel size or other tuple-like inputs
-                    if param_name == "kernel_size":
-                        layer_params[param_name] = tuple(map(int, widget.text().split(',')))
-            
-            self.layer_config.append({
-                "type": layer_type,
-                "params": layer_params
-            })
-            
-            dialog.accept()
-        
-        add_btn.clicked.connect(add_layer)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        dialog.exec()
-    
+    def show_layer_context_menu(self, position):
+        menu = QMenu()
+        edit_action = menu.addAction("Düzenle")
+        delete_action = menu.addAction("Sil")
+        action = menu.exec(self.layer_list_widget.mapToGlobal(position))
+
+        selected_row = self.layer_list_widget.currentRow()
+        if selected_row < 0:
+            return
+
+        if action == edit_action:
+            layer = self.layer_config[selected_row]
+            self.add_layer_dialog(existing_layer=layer, index=selected_row)  # 👈 index burada gönderilmeli
+        elif action == delete_action:
+            del self.layer_config[selected_row]
+            self.update_layer_display()
+
+
+
+    def update_layer_display(self):
+        self.layer_list_widget.clear()
+        for i, layer in enumerate(self.layer_config):
+            text = f"{i+1}. {layer['type']} - {layer['params']}"
+            self.layer_list_widget.addItem(QListWidgetItem(text))
+
+    def delete_selected_layer(self):
+        selected = self.layer_list_widget.currentRow()
+        if selected >= 0:
+            del self.layer_config[selected]
+            self.update_layer_display()
+
     
     def create_training_params_group(self):
         """Create group for neural network training parameters"""
@@ -1573,165 +1920,684 @@ class MLCourseGUI(QMainWindow):
         # Learning rate
         lr_layout = QHBoxLayout()
         lr_layout.addWidget(QLabel("Learning Rate:"))
+
         self.lr_spin = QDoubleSpinBox()
-        self.lr_spin.setRange(0.0001, 1.0)
-        self.lr_spin.setValue(0.001)
-        self.lr_spin.setSingleStep(0.001)
+        self.lr_spin.setRange(0.000001, 1.0)
+        self.lr_spin.setDecimals(6)  
+        self.lr_spin.setSingleStep(0.0001)
+        self.lr_spin.setValue(0.0001)
+
         lr_layout.addWidget(self.lr_spin)
         layout.addLayout(lr_layout)
+
         
         group.setLayout(layout)
         return group
-    
+    def save_model_architecture(self):
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save Model", "", "HDF5 files (*.h5);;JSON files (*.json)")
+            if file_path:
+                model = self.create_neural_network(input_shape=self.X_train.shape[1:])
+                # Dummy compile to allow saving structure
+                model.compile(optimizer='adam', loss='categorical_crossentropy')
+                if file_path.endswith(".h5"):
+                    model.save(file_path)
+                elif file_path.endswith(".json"):
+                    json_path = file_path
+                    weights_path = file_path.replace(".json", ".weights.h5")
+                    model_json = model.to_json()
+                    with open(json_path, "w") as json_file:
+                        json_file.write(model_json)
+                    model.save_weights(weights_path)
+                self.status_bar.showMessage(f"Model saved to: {file_path}")
+        except Exception as e:
+            self.show_error(f"Save Error: {str(e)}")
+
+    def load_model_architecture(self):
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(self, "Load Model", "", "HDF5 files (*.h5);;JSON files (*.json)")
+            if not file_path:
+                return
+
+            if file_path.endswith(".h5"):
+                from tensorflow.keras.models import load_model
+                model = load_model(file_path)
+            elif file_path.endswith(".json"):
+                from tensorflow.keras.models import model_from_json
+                with open(file_path, "r") as json_file:
+                    model_json = json_file.read()
+                model = model_from_json(model_json)
+                weights_path = file_path.replace(".json", ".weights.h5")
+                model.load_weights(weights_path)
+
+            self.loaded_model = model
+            self.status_bar.showMessage(f"Model loaded from: {file_path}")
+            self.metrics_text.append("✅ Model structure loaded.\n")
+
+        except Exception as e:
+            self.show_error(f"Load Error: {str(e)}")
+
+
+    def load_pretrained_model(self):
+        try:
+            model_name = self.pretrained_combo.currentText()
+            if model_name == "None":
+                self.show_error("Please select a pretrained model.")
+                return
+
+            if not hasattr(self, "train_gen") or self.train_gen is None:
+                self.show_error("Please load image data before loading pretrained model.")
+                return
+
+            input_shape = (224, 224, 3)
+            from tensorflow.keras.applications import VGG16, ResNet50
+            from tensorflow.keras.models import Model
+            from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
+
+            base_model = None
+            if model_name == "VGG16":
+                base_model = VGG16(weights='imagenet', include_top=False, input_shape=input_shape)
+            elif model_name == "ResNet50":
+                base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+
+            base_model.trainable = False  # freeze convolutional base
+
+            x = base_model.output
+            x = GlobalAveragePooling2D()(x)
+            x = Dropout(0.5)(x)
+            x = Dense(128, activation='relu')(x)
+
+            num_classes = self.train_gen.num_classes  # ✅ Doğru yerden alınmalı!
+            predictions = Dense(num_classes, activation='softmax')(x)
+
+            self.loaded_model = Model(inputs=base_model.input, outputs=predictions)
+            self.loaded_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+            self.status_bar.showMessage(f"{model_name} loaded and ready for fine-tuning.")
+            self.metrics_text.append(f"✅ {model_name} loaded.\n")
+
+        except Exception as e:
+            self.show_error(f"Pretrained Load Error: {str(e)}")
+
+
     
     def create_cnn_controls(self):
-        """Create controls for Convolutional Neural Network"""
         group = QGroupBox("CNN Architecture")
         layout = QVBoxLayout()
-        
-        # Placeholder for CNN-specific controls
-        label = QLabel("CNN Controls (To be implemented)")
-        layout.addWidget(label)
-        
+
+        self.cnn_layer_config = []
+        self.cnn_layer_list_widget = QListWidget()
+        layout.addWidget(self.cnn_layer_list_widget)
+
+        add_btn = QPushButton("Add CNN Layer")
+        add_btn.clicked.connect(self.add_cnn_layer_dialog)
+        layout.addWidget(add_btn)
+        self.cnn_layer_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.cnn_layer_list_widget.customContextMenuRequested.connect(self.show_cnn_layer_context_menu)
+
         group.setLayout(layout)
         return group
+    def show_cnn_layer_context_menu(self, position):
+        menu = QMenu()
+        edit_action = menu.addAction("Düzenle")
+        delete_action = menu.addAction("Sil")
+        action = menu.exec(self.cnn_layer_list_widget.mapToGlobal(position))
+
+        selected_row = self.cnn_layer_list_widget.currentRow()
+        if selected_row < 0:
+            return
+
+        if action == edit_action:
+            layer = self.cnn_layer_config[selected_row]
+            self.edit_cnn_layer_dialog(existing_layer=layer, index=selected_row)
+        elif action == delete_action:
+            del self.cnn_layer_config[selected_row]
+            self.update_cnn_layer_list()    
+    def add_cnn_layer_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add CNN Layer")
+        layout = QVBoxLayout(dialog)
+
+        type_combo = QComboBox()
+        type_combo.addItems(["Conv2D", "MaxPooling2D", "Flatten", "Dropout", "BatchNormalization"])
+        layout.addWidget(QLabel("Layer Type:"))
+        layout.addWidget(type_combo)
+
+        params_layout = QVBoxLayout()
+        self.cnn_param_inputs = {}
+
+        def update_params():
+            # Clear previous
+            for i in reversed(range(params_layout.count())):
+                widget = params_layout.itemAt(i).widget()
+                if widget:
+                    params_layout.removeWidget(widget)
+                    widget.setParent(None)
+            self.cnn_param_inputs.clear()
+
+            layer_type = type_combo.currentText()
+
+            if layer_type == "Conv2D":
+                filters_spin = QSpinBox()
+                filters_spin.setRange(1, 512)
+                filters_spin.setValue(32)
+                self.cnn_param_inputs["filters"] = filters_spin
+                params_layout.addWidget(QLabel("Filters:"))
+                params_layout.addWidget(filters_spin)
+
+                kernel_input = QLineEdit("3,3")
+                self.cnn_param_inputs["kernel_size"] = kernel_input
+                params_layout.addWidget(QLabel("Kernel Size (e.g. 3,3):"))
+                params_layout.addWidget(kernel_input)
+
+                activation_combo = QComboBox()
+                activation_combo.addItems(["relu", "sigmoid", "tanh", "linear"])
+                self.cnn_param_inputs["activation"] = activation_combo
+                params_layout.addWidget(QLabel("Activation:"))
+                params_layout.addWidget(activation_combo)
+
+            elif layer_type == "MaxPooling2D":
+                pool_input = QLineEdit("2,2")
+                self.cnn_param_inputs["pool_size"] = pool_input
+                params_layout.addWidget(QLabel("Pool Size (e.g. 2,2):"))
+                params_layout.addWidget(pool_input)
+
+            elif layer_type == "Dropout":
+                rate_input = QDoubleSpinBox()
+                rate_input.setRange(0.0, 0.9)
+                rate_input.setValue(0.5)
+                self.cnn_param_inputs["rate"] = rate_input
+                params_layout.addWidget(QLabel("Dropout Rate:"))
+                params_layout.addWidget(rate_input)
+
+            elif layer_type == "BatchNormalization":
+                note = QLabel("No parameters.")
+                params_layout.addWidget(note)
+
+            elif layer_type == "Flatten":
+                note = QLabel("No parameters.")
+                params_layout.addWidget(note)
+
+        type_combo.currentIndexChanged.connect(update_params)
+        update_params()
+
+        layout.addLayout(params_layout)
     
+        def save():
+            params = {}
+            for key, widget in self.cnn_param_inputs.items():
+                if isinstance(widget, QSpinBox):
+                    params[key] = widget.value()
+                elif isinstance(widget, QDoubleSpinBox):
+                    params[key] = widget.value()
+                elif isinstance(widget, QComboBox):
+                    params[key] = widget.currentText()
+                elif isinstance(widget, QLineEdit):
+                    val = widget.text().replace(" ", "")
+                    if "," in val:
+                        params[key] = tuple(map(int, val.split(",")))
+                    else:
+                        params[key] = val
+            self.cnn_layer_config.append({
+                "type": type_combo.currentText(),
+                "params": params
+            })
+            self.update_cnn_layer_list()
+            dialog.accept()
+
+        save_btn = QPushButton("Add Layer")
+        save_btn.clicked.connect(save)
+        layout.addWidget(save_btn)
+
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def update_cnn_layer_list(self):
+        self.cnn_layer_list_widget.clear()
+        for i, layer in enumerate(self.cnn_layer_config):
+            text = f"{i+1}. {layer['type']} - {layer['params']}"
+            self.cnn_layer_list_widget.addItem(QListWidgetItem(text))
+
+
     
     def create_rnn_controls(self):
-        """Create controls for Recurrent Neural Network"""
         group = QGroupBox("RNN Architecture")
         layout = QVBoxLayout()
-        
-        # Placeholder for RNN-specific controls
-        label = QLabel("RNN Controls (To be implemented)")
-        layout.addWidget(label)
-        
+
+        self.rnn_layer_config = []
+        self.rnn_layer_list_widget = QListWidget()
+        layout.addWidget(self.rnn_layer_list_widget)
+
+        # Butonlar
+        add_btn = QPushButton("Add RNN Layer")
+        add_btn.clicked.connect(self.add_rnn_layer_dialog)
+        layout.addWidget(add_btn)
+        self.rnn_layer_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.rnn_layer_list_widget.customContextMenuRequested.connect(self.show_rnn_layer_context_menu)   
         group.setLayout(layout)
         return group
+    def show_rnn_layer_context_menu(self, position):
+        menu = QMenu()
+        edit_action = menu.addAction("Düzenle")
+        delete_action = menu.addAction("Sil")
+        action = menu.exec(self.rnn_layer_list_widget.mapToGlobal(position))
+
+        selected_row = self.rnn_layer_list_widget.currentRow()
+        if selected_row < 0:
+            return
+
+        if action == edit_action:
+            layer = self.rnn_layer_config[selected_row]
+            self.edit_rnn_layer_dialog(existing_layer=layer, index=selected_row)
+        elif action == delete_action:
+            del self.rnn_layer_config[selected_row]
+            self.update_rnn_layer_list()
+    
+    def add_rnn_layer_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add RNN Layer")
+        layout = QVBoxLayout(dialog)
+
+        type_combo = QComboBox()
+        type_combo.addItems(["LSTM", "GRU"])
+        layout.addWidget(QLabel("Layer Type:"))
+        layout.addWidget(type_combo)
+
+        units_spin = QSpinBox()
+        units_spin.setRange(1, 512)
+        units_spin.setValue(64)
+        layout.addWidget(QLabel("Units:"))
+        layout.addWidget(units_spin)
+
+        return_seq_checkbox = QCheckBox("Return Sequences")
+        layout.addWidget(return_seq_checkbox)
+
+        def save():
+            self.rnn_layer_config.append({
+                "type": type_combo.currentText(),
+                "params": {
+                    "units": units_spin.value(),
+                    "return_sequences": return_seq_checkbox.isChecked()
+                }
+            })
+            self.update_rnn_layer_list()
+            dialog.accept()
+
+        btn = QPushButton("Add Layer")
+        btn.clicked.connect(save)
+        layout.addWidget(btn)
+
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def update_rnn_layer_list(self):
+        self.rnn_layer_list_widget.clear()
+        for i, layer in enumerate(self.rnn_layer_config):
+            text = f"{i+1}. {layer['type']} - {layer['params']}"
+            self.rnn_layer_list_widget.addItem(QListWidgetItem(text))
+
+    
+    def prepare_emg_data_for_rnn(self, window_size=20):
+        # EMG verisinin self.X_train ve self.y_train formatında olduğunu varsayalım
+        X = self.X_train  # shape: (num_samples, num_channels)
+        y = self.y_train  # sınıf etiketi
+
+        # Sliding window oluştur
+        X_seq, y_seq = [], []
+        for i in range(len(X) - window_size):
+            X_seq.append(X[i:i+window_size])
+            y_seq.append(y[i+window_size])
+        X_seq = np.array(X_seq)
+        y_seq = np.array(y_seq)
+
+        # Etiketleri one-hot encode et (eğer çoklu sınıf varsa)
+        from tensorflow.keras.utils import to_categorical
+        num_classes = len(np.unique(y_seq))
+        y_seq_cat = to_categorical(y_seq, num_classes=num_classes)
+
+        return X_seq, y_seq_cat
+
+    def load_image_folder_dataset(self):
+        from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Image Dataset Folder")
+        if not folder_path:
+            return
+
+        img_size = (224, 224)
+        batch_size = 32
+        val_split = self.val_split_spin.value()
+
+        datagen = ImageDataGenerator(rescale=1./255, validation_split=val_split)
+
+        self.train_gen = datagen.flow_from_directory(
+            folder_path,
+            target_size=img_size,
+            batch_size=batch_size,
+            class_mode="categorical",
+            subset="training"
+        )
+        self.val_gen = datagen.flow_from_directory(
+            folder_path,
+            target_size=img_size,
+            batch_size=batch_size,
+            class_mode="categorical",
+            subset="validation"
+        )
+
+        self.status_bar.showMessage(f"Loaded image dataset from: {folder_path}")
+
+
+
+    def train_pretrained_model(self):
+        try:
+            # 1. Verinin yüklü olduğunu kontrol et
+            if not hasattr(self, "train_gen") or self.train_gen is None:
+                self.show_error("No image data loaded. Please load an image folder first.")
+                return
+
+            # 2. Modelin yüklü olduğunu kontrol et
+            if not hasattr(self, "loaded_model") or self.loaded_model is None:
+                self.show_error("No pretrained model loaded. Please select and load VGG16 or ResNet50.")
+                return
+
+            # 3. Temel eğitim parametrelerini al
+            model = self.loaded_model
+            input_shape = self.train_gen.image_shape
+            num_classes = self.train_gen.num_classes
+            epochs = self.epochs_spin.value()
+            batch_size = self.batch_size_spin.value()
+            learning_rate = self.lr_spin.value()
+
+            # 4. Optimizer seçimi
+            optimizer_name = self.optimizer_combo.currentText()
+            optimizer_class = {
+                "Adam": tf.keras.optimizers.Adam,
+                "SGD": tf.keras.optimizers.SGD,
+                "RMSprop": tf.keras.optimizers.RMSprop
+            }.get(optimizer_name, tf.keras.optimizers.Adam)
+            optimizer = optimizer_class(learning_rate=learning_rate)
+
+            # 5. Modeli derle
+            model.compile(
+                optimizer=optimizer,
+                loss="categorical_crossentropy",
+                metrics=["accuracy"]
+            )
+
+            # 6. Callback'ler
+            callbacks = [self.create_progress_callback()]
+            if self.early_stop_checkbox.isChecked():
+                callbacks.append(tf.keras.callbacks.EarlyStopping(
+                    monitor="val_loss", patience=5, restore_best_weights=True))
+            if hasattr(self, "plot_gradients_checkbox") and self.plot_gradients_checkbox.isChecked():
+                callbacks.append(GradientHistogramCallback(model, self.gradient_canvas, self.X_test, self.y_test))
+
+
+            # 7. Eğitimi başlat
+            history = model.fit(
+                self.train_gen,
+                validation_data=self.val_gen,
+                epochs=epochs,
+                batch_size=batch_size,
+                callbacks=callbacks
+            )
+
+            # 8. Sonuçları GUI'ye yansıt
+            self.history = history
+            self.plot_training_history(history)
+
+            self.status_bar.showMessage("✅ Pretrained model training complete.")
+            self.metrics_text.append("✅ Fine-tuning complete.\n")
+
+        except Exception as e:
+            self.show_error(f"Pretrained Model Training Error:\n{str(e)}")
+
+    
+    def on_train_button_clicked(self):
+        if hasattr(self, "loaded_model") and self.loaded_model:
+            self.train_pretrained_model()
+        else:
+            self.train_neural_network()
     
     
     def train_neural_network(self):
-        """Train the neural network with current configuration"""
-        if not self.layer_config:
-            self.show_error("Please add at least one layer to the network")
-            return
-        
         try:
-            # Create and compile model
-            model = self.create_neural_network()
-            
-            # Get training parameters
+            if self.X_train is None or self.y_train is None:
+                self.show_error("No training data available.")
+                return
+
             batch_size = self.batch_size_spin.value()
             epochs = self.epochs_spin.value()
             learning_rate = self.lr_spin.value()
-            
-            # Prepare data for neural network
-            if len(self.X_train.shape) == 1:
-                X_train = self.X_train.reshape(-1, 1)
-                X_test = self.X_test.reshape(-1, 1)
+
+            X_train = self.X_train.astype("float32")
+            X_test = self.X_test.astype("float32")
+
+            is_regression = len(np.unique(self.y_train)) > 20 and self.y_train.ndim == 1
+
+            if is_regression:
+                y_train = self.y_train.astype("float32")
+                y_test = self.y_test.astype("float32")
+                output_units = 1
+                output_activation = "linear"
+                loss_function = "mse"
+                metrics = ["mae"]
             else:
-                X_train = self.X_train
-                X_test = self.X_test
-            
-            # One-hot encode target for classification
-            y_train = tf.keras.utils.to_categorical(self.y_train)
-            y_test = tf.keras.utils.to_categorical(self.y_test)
-            
-            # Compile model
-            optimizer = optimizers.Adam(learning_rate=learning_rate)
-            model.compile(optimizer=optimizer,
-                          loss='categorical_crossentropy',
-                          metrics=['accuracy'])
-            
-            # Train model
-            history = model.fit(X_train, y_train,
-                                batch_size=batch_size,
-                                epochs=epochs,
-                                validation_data=(X_test, y_test),
-                                callbacks=[self.create_progress_callback()])
-            
-            # Update visualization with training history
+                from sklearn.preprocessing import LabelEncoder
+                from tensorflow.keras.utils import to_categorical
+
+                encoder = LabelEncoder()
+                y_train = encoder.fit_transform(self.y_train.astype("int"))
+                y_test = encoder.transform(self.y_test.astype("int"))
+
+                num_classes = len(np.unique(y_train))
+                y_train = to_categorical(y_train, num_classes=num_classes)
+                y_test = to_categorical(y_test, num_classes=num_classes)
+
+                output_units = num_classes
+                output_activation = "softmax"
+                loss_function = "categorical_crossentropy"
+                metrics = ["accuracy"]
+
+            model = self.create_neural_network(input_shape=X_train.shape[1:])
+            model.add(tf.keras.layers.Dense(output_units, activation=output_activation))
+
+            optimizer_name = self.optimizer_combo.currentText()
+            optimizer_class = {
+                "Adam": tf.keras.optimizers.Adam,
+                "SGD": tf.keras.optimizers.SGD,
+                "RMSprop": tf.keras.optimizers.RMSprop
+            }.get(optimizer_name, tf.keras.optimizers.Adam)
+            optimizer = optimizer_class(learning_rate=learning_rate)
+
+            model.compile(optimizer=optimizer, loss=loss_function, metrics=metrics)
+
+            callbacks = [self.create_progress_callback()]
+            if self.early_stop_checkbox.isChecked():
+                callbacks.append(tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True))
+
+            # ✅ Gradient Histogram (eğer checkbox seçiliyse)
+            if hasattr(self, "plot_gradients_checkbox") and self.plot_gradients_checkbox.isChecked():
+                callbacks.append(GradientHistogramCallback(model, self.gradient_canvas, self.X_test, self.y_test))
+                self.viz_tab_widget.setCurrentIndex(2)  # Sekmeyi otomatik aç
+
+            history = model.fit(
+                X_train, y_train,
+                batch_size=batch_size,
+                epochs=epochs,
+                validation_data=(X_test, y_test),
+                callbacks=callbacks
+            )
+
+            self.history = history
             self.plot_training_history(history)
-            
-            self.status_bar.showMessage("Neural Network Training Complete")
-            
+
+            if is_regression:
+                from sklearn.metrics import mean_squared_error, mean_absolute_error
+                y_pred = model.predict(X_test)
+                mse = mean_squared_error(y_test, y_pred)
+                mae = mean_absolute_error(y_test, y_pred)
+                self.metrics_text.append(f"\n✅ Regression Evaluation:\nMSE: {mse:.4f}\nMAE: {mae:.4f}")
+            else:
+                y_pred = model.predict(X_test).argmax(axis=1)
+                y_test_labels = y_test.argmax(axis=1)
+                from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+                acc = accuracy_score(y_test_labels, y_pred)
+                f1 = f1_score(y_test_labels, y_pred, average="macro")
+                self.metrics_text.append(f"\n✅ Classification Evaluation:\nAccuracy: {acc:.4f}\nF1-Score: {f1:.4f}")
+
+                # ✅ Confusion Matrix çiz
+                import seaborn as sns
+                import matplotlib.pyplot as plt
+                cm = confusion_matrix(y_test_labels, y_pred)
+                fig, ax = plt.subplots(figsize=(6, 5))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                ax.set_title('Confusion Matrix')
+
+                if hasattr(self, 'cm_canvas'):
+                    self.cm_canvas.setParent(None)
+
+                self.cm_canvas = FigureCanvas(fig)
+
+                cm_tab_layout = self.confusion_matrix_label.parentWidget().layout()
+                self.confusion_matrix_label.setParent(None)
+                cm_tab_layout.addWidget(self.cm_canvas)
+                self.cm_canvas.draw()
+
+                self.viz_tab_widget.setCurrentIndex(1)  # Confusion Matrix sekmesini aç
+
+            self.status_bar.showMessage("Training completed.")
+
         except Exception as e:
-            self.show_error(f"Error training neural network: {str(e)}")
+            self.show_error(f"Training Error: {str(e)}")
+
+
+
     
     
-    def create_neural_network(self):
-        """Create neural network based on current configuration"""
+    def create_neural_network(self, input_shape=None):
+        """Create a Keras Sequential model using CNN, RNN, and Dense configurations"""
+        from tensorflow.keras import layers, models, regularizers
+
         model = models.Sequential()
-        
-        # Add layers based on configuration
-        for layer_config in self.layer_config:
-            layer_type = layer_config["type"]
-            params = layer_config["params"]
-            
-            if layer_type == "Dense":
-                model.add(layers.Dense(**params))
-            elif layer_type == "Conv2D":
-                # Add input shape for the first layer
-                if len(model.layers) == 0:
-                    params['input_shape'] = self.X_train.shape[1:]
+
+        # === CNN katmanları (varsa)
+        for i, layer_conf in enumerate(self.cnn_layer_config):
+            layer_type = layer_conf["type"]
+            params = dict(layer_conf["params"])
+
+            if "kernel_size" in params and isinstance(params["kernel_size"], str):
+                params["kernel_size"] = tuple(map(int, params["kernel_size"].split(",")))
+            if "pool_size" in params and isinstance(params["pool_size"], str):
+                params["pool_size"] = tuple(map(int, params["pool_size"].split(",")))
+
+            if 'use_l2' in params and params['use_l2']:
+                params['kernel_regularizer'] = regularizers.l2(params.get('l2_rate', 0.001))
+
+            if i == 0 and input_shape is not None and "input_shape" not in params:
+                params["input_shape"] = input_shape
+
+            if layer_type == "Conv2D":
                 model.add(layers.Conv2D(**params))
             elif layer_type == "MaxPooling2D":
-                model.add(layers.MaxPooling2D())
-            elif layer_type == "Flatten":
-                model.add(layers.Flatten())
+                model.add(layers.MaxPooling2D(**params))
             elif layer_type == "Dropout":
                 model.add(layers.Dropout(**params))
+            elif layer_type == "BatchNormalization":
+                model.add(layers.BatchNormalization())
+            elif layer_type == "Flatten":
+                model.add(layers.Flatten())
+
+        # === RNN katmanları (varsa)
+        for i, layer_conf in enumerate(self.rnn_layer_config):
+            layer_type = layer_conf["type"]
+            params = dict(layer_conf["params"])
+
+            if 'use_l2' in params and params['use_l2']:
+                params['kernel_regularizer'] = regularizers.l2(params.get('l2_rate', 0.001))
+
+
+            if i == 0 and len(input_shape) == 1:  # (samples, sequence_length)
+                vocab_size = int(np.max(self.X_train)) + 1  # tüm kelime indekslerini kapsar
+                embedding_dim = 128
+                model.add(layers.Embedding(input_dim=vocab_size,
+                                        output_dim=embedding_dim,
+                                        input_length=input_shape[0]))
+                input_shape = (input_shape[0], embedding_dim)  # embedding sonrası şekil
+
+            # İlk katmana input shape ekle
+            if i == 0 and input_shape is not None and "input_shape" not in params:
+                params["input_shape"] = input_shape
+
+            if layer_type == "LSTM":
+                model.add(layers.LSTM(**params))
+            elif layer_type == "GRU":
+                model.add(layers.GRU(**params))
+
         
-        # Add output layer based on number of classes
-        num_classes = len(np.unique(self.y_train))
-        model.add(layers.Dense(num_classes, activation='softmax'))
-                
+        # === Dense (MLP) katmanları
+        for i, layer_conf in enumerate(self.layer_config):
+            layer_type = layer_conf["type"]
+            params = dict(layer_conf["params"])
+
+            if 'use_l2' in params and params['use_l2']:
+                params['kernel_regularizer'] = regularizers.l2(params.get('l2_rate', 0.001))
+
+            if layer_type == "Dense":
+                model.add(layers.Dense(**params))
+            elif layer_type == "Dropout":
+                model.add(layers.Dropout(**params))
+            elif layer_type == "Flatten":
+                model.add(layers.Flatten())
+            elif layer_type == "BatchNormalization":
+                model.add(layers.BatchNormalization())
+
         return model
 
-           
-    def train_neural_network(self):
-        """Train the neural network"""
-        try:
-            # Create and compile model
-            model = self.create_neural_network()
-            
-            # Get training parameters
-            batch_size = self.batch_size_spin.value()
-            epochs = self.epochs_spin.value()
-            learning_rate = self.lr_spin.value()
-            
-            # Compile model
-            optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-            model.compile(optimizer=optimizer,
-                        loss='categorical_crossentropy',
-                        metrics=['accuracy'])
-            
-            # Train model
-            history = model.fit(self.X_train, self.y_train,
-                              batch_size=batch_size,
-                              epochs=epochs,
-                              validation_data=(self.X_test, self.y_test),
-                              callbacks=[self.create_progress_callback()])
-            
-            # Update visualization with training history
-            self.plot_training_history(history)
-            
-        except Exception as e:
-            self.show_error(f"Error training neural network: {str(e)}")
-            
-    
+    def create_sequences(self, X, y, window_size=20):
+        Xs, ys = [], []
+        for i in range(len(X) - window_size):
+            Xs.append(X[i:i+window_size])
+            ys.append(y[i+window_size])
+        return np.array(Xs), np.array(ys)
+
     def create_progress_callback(self):
-        """Create callback for updating progress bar during training"""
+        """Create callback for progress bar + metrics text logging"""
         class ProgressCallback(tf.keras.callbacks.Callback):
-            def __init__(self, progress_bar):
+            def __init__(self, parent):
                 super().__init__()
-                self.progress_bar = progress_bar
-                
+                self.gui = parent
+
             def on_epoch_end(self, epoch, logs=None):
+                logs = logs or {}
                 progress = int(((epoch + 1) / self.params['epochs']) * 100)
-                self.progress_bar.setValue(progress)
-                
-        return ProgressCallback(self.progress_bar)
+                self.gui.progress_bar.setValue(progress)
+
+                # Günlük bilgi
+                val_acc = logs.get('val_accuracy', 0)
+                val_loss = logs.get('val_loss', 0)
+                train_acc = logs.get('accuracy', 0)
+                train_loss = logs.get('loss', 0)
+
+                message = (
+                    f"Epoch {epoch + 1}/{self.params['epochs']}:\n"
+                    f"  Train Acc: {train_acc:.4f}, Loss: {train_loss:.4f}\n"
+                    f"  Val   Acc: {val_acc:.4f}, Loss: {val_loss:.4f}\n\n"
+                )
+
+                self.gui.metrics_text.append(message)
+
+                # Sekmeyi değiştirmek istiyorsan GUI üzerinden yap
+                self.gui.viz_tab_widget.setCurrentIndex(2)
+
+            def on_train_end(self, logs=None):
+                self.gui.metrics_text.append("✅ Training Completed.\n")
+        
+        return ProgressCallback(self)
+
         
     
     def update_visualization(self, y_pred):
@@ -1819,11 +2685,71 @@ class MLCourseGUI(QMainWindow):
         
         self.figure.tight_layout()
         self.canvas.draw()
-        
+  
     
     def show_error(self, message):
         """Show error message dialog"""
         QMessageBox.critical(self, "Error", message)
+
+
+class ColumnSelectionDialog(QDialog):
+    def __init__(self, columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Columns for Feature Extraction")
+        self.selected_columns = []
+
+        layout = QVBoxLayout()
+        self.checkboxes = []
+
+        for col in columns:
+            checkbox = QCheckBox(col)
+            checkbox.setChecked(True)  # Varsayılan: hepsi seçili
+            layout.addWidget(checkbox)
+            self.checkboxes.append(checkbox)
+
+        btn = QPushButton("Confirm")
+        btn.clicked.connect(self.accept)
+        layout.addWidget(btn)
+
+        self.setLayout(layout)
+
+    def get_selected_columns(self):
+        return [cb.text() for cb in self.checkboxes if cb.isChecked()]
+    
+class GradientHistogramCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model, canvas, x_test=None, y_test=None, val_gen=None):
+        super().__init__()
+        self.model    = model
+        self.canvas   = canvas
+        self.x_test   = x_test
+        self.y_test   = y_test
+        self.val_gen  = val_gen
+
+    def on_epoch_end(self, epoch, logs=None):
+        # 1) Öncelikle generator varsa oradan batch çek
+        if self.val_gen is not None:
+            x_input, y_true = next(iter(self.val_gen))
+        else:
+            # 2) Aksi halde init ile gelen dizileri kullan
+            x_input, y_true = self.x_test, self.y_test
+
+        with tf.GradientTape() as tape:
+            preds = self.model(x_input, training=True)
+            loss  = self.model.compiled_loss(y_true, preds)
+
+        grads = tape.gradient(loss, self.model.trainable_variables)
+
+        self.canvas.figure.clear()
+        ax = self.canvas.figure.add_subplot(111)
+        flat_grads = tf.concat(
+            [tf.reshape(g, [-1]) for g in grads if g is not None],
+            axis=0
+        )
+        ax.hist(flat_grads.numpy(), bins=50)
+        ax.set_title(f"Gradient Histogram - Epoch {epoch + 1}")
+        self.canvas.draw()
+
+
 
 def main():
     """Main function to start the application"""
@@ -1831,6 +2757,9 @@ def main():
     window = MLCourseGUI()
     window.show()
     sys.exit(app.exec())
+
+
+
 
 if __name__ == '__main__':
     main()
